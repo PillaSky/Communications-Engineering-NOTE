@@ -219,6 +219,8 @@ Termination occurs when **the process or C compiler call `exit()`**
 #### Multiple Processors
 * 每個處理器可以同時跑不同的 process，是真正的硬體層並行（真正的 parallelism）
 
+---
+
 ### 好的排程器應該滿足的三個目標
 * Fairness（公平性): 每個 process 都應該有機會使用 CPU，不該有某個 process 一直獨佔 CPU
 * Response Time（回應時間）: 應該要快速回應
@@ -359,11 +361,270 @@ Termination occurs when **the process or C compiler call `exit()`**
 - 從 nice weight 的觀點: weight(n) = 1024 x (1.25)^(-n)
 以上兩點是可以互推的
 
-<img width="964" height="1218" alt="image" src="https://github.com/user-attachments/assets/b1532391-fa31-400c-979c-cdec94337545" />    
+<img width="482" height="609" alt="image" src="https://github.com/user-attachments/assets/b1532391-fa31-400c-979c-cdec94337545" />    
 
 ---
 前面介紹完了 Linux 作業系統不同時期的 Process Scheduler 設計演進，接著要進一步介紹**即時排程政策**    
 
 ## Realtime Scheduling Policies
+這段是在說明 Linux 的 Realtime Scheduling Policies（即時排程政策） 的行為  
+
+* Soft Realtime
+    * Kernel 嘗試在時間內「調度應用程式」(**Linux 僅提供 soft realtime**)
+* Hard Realtime
+    * Kernel 保證在時間內滿足任何調度需求
+ 
+---
+
+### Linux 的即時排程政策（Linux Realtime Scheduling Policies）
+
+* Priority Range: 0~99 (Realtime Processes)
+    * FIFO (`SCHED_FIFO`):
+        * have no timeslice and can run indefinitely
+        * Only a high priority **FIFO** or **RR Tasks** can preempt
+          
+    * RR   (`SCHED_RR`)
+        * FIFO with timeslice
+        * 即使這個 `SCHED_RR` 任務已經把它的 time slice 用完了，也要等它主動讓出，代表低優先權的任務永遠不能中斷它
+
+* Priority Range:100~139 (Normal Processes)
+
+---
+
+## Process Context Switch
+這段落是在解釋 Linux 中的「Process Context Switch（程序上下文切換）」，也就是從一個可執行的 process 換到另一個的過程  
+
+* 簡單的說，'context switch' 就是切換  'context'。而所謂的 'context'，指的就是當下 CPU  registers 的內容。
+    * 因為當程式在執行時，所做的事情就是從 memory 中讀取指令和依照指令做計算。
+    * CPU 在做這兩件事情時，就是用 core registers (CPU 內部的 register) 來紀錄讀取到哪裡了，以及當作計算時的暫存區域。
+    * 當 CPU 做事做到一半，如果有事件發生了，而且這個事件的處理所用到的 core registers 會把目前的進度蓋掉的話，CPU 就會先需要把 core registers 目前的值先暫存到 memory 的某個地方，等 CPU 處理完事件之後，再把暫存的值讀回來，就可以從事件發生時中斷的地方在繼續處理。這就是所謂的 'context switch'。
+
+---
+
+### 「Process Context（程序上下文）」指的是一個 process 執行所需的全部狀態資訊:
+* User Address Space: 使用者空間資料，例如：Page Table
+* Hardware Registers: 處理器暫存器，例如：PC（Program Counter）
+* Kernel Data Structures: 作業系統記錄該 process 的內部資料，例如：PID、開啟的檔案
+
+---
+
+### 「Process Context Switch」就是從一個可執行 process 換到另一個的操作，執行 switch 時，主要分成兩部分: `switch_mm()` 與 `switch_to()`
+
+***
+
+#### `switch_mm()`: Switch the virtual memory mapping 
+<img width="976" height="145" alt="image" src="https://github.com/user-attachments/assets/99bf9b06-6c66-4e4e-8e8c-6f8d7b836959" />  
+
+* 比喻：你今天是 CPU，一開始在幫 P1 工作。這時你的（記憶體 page table）是 P1 的資料。但現在你要幫 P2 工作，就必須把桌上地圖換成 P2 的那張地圖，不然你根本找不到他要用的資料。
+* 所以 `switch_mm()` 做了什麼？
+    * Flush Branch Predictor: 擦掉「剛剛猜的東西」（P1 的預測邏輯）
+    * Load New Page Table (CR3): 換成 P2 的記憶體地圖
+    * Flush TLB: 清掉「記憶體快取」的資料，避免用到 P1 的陳年舊資料
+    * Load CR4: 把新的進階設定裝上（P2 可能有不同記憶體特性）
+    * Load LDT:（通常不用）要是 P2 有自己的 segment 資訊也要載入
+ 
+* 結果：你（CPU）現在桌上已經是 P2 的記憶體地圖，準備接手他的任務了
+
+***
+
+#### `switch_to()`: Switch the process state
+
+<img width="1218" height="425" alt="image" src="https://github.com/user-attachments/assets/0fad5fb9-604f-4cab-ad51-5c0f8180ab79" />
+
+* 比喻：想像你現在要交接班：需要從 Process A 交接給 Process B，要把工具、身份證、密碼、暫存器、文件全部換成 B 的。
+* 所以 `switch_to()` 做了什麼？
+    * Push registers to save: CPU 把目前暫存器的值壓到記憶體，保存 A 的現狀
+    * Swap Stacks: 把「堆疊資料」也一起交換，因為不同 process 用的是不同的 stack，這邊也要切換 stack 指標
+    * Save FPU, Update TS: 儲存數學運算器狀態
+    * Update Ring 0 Stack: 切換內核模式下使用的堆疊
+    * Save/Load ES & DS: 保存「區段暫存器」，用來指到 memory segment（記憶體區段），這些設定要從 A 換成 B
+    * Update Thread Local Storage: 換掉 Thread Local 的變數表
+    * Save/Load FS & GS: 換掉 FS/GS：給 Thread Local Storage 用的特殊暫存器
+    * Store User Stack: 保存舊的使用者堆疊
+    * Switch PDA Contexts: 切換 PDA，每個 CPU 有一份自己的筆記：IRQ 記錄、中斷資訊、快取、MMU 狀態，這邊也要換成 B 的
+    * Update Debug Registers: 如果 A 有設斷點或除錯設定，也要更新成 B 的設定
+    * Update I/O Permissions: 切換是否能存取某些硬體裝置的權限表
+    * Restore Saved Registers: 把 Process B 的工具全部拿回來放上 CPU，這步完成後，CPU 就是 完全以 B 的身份工作了！
+
+---
+
+## CPU Mode Switch vs Process Context Switch
+
+這部分要特別說明區分 「CPU模式切換」 和 「Process內容切換（Context Switch）」 這兩種看起來類似但完全不同的行為  
+
+### CPU Mode Switch
+當 CPU 遇到 interrupt 或 exception 時，CPU 會從 User mode 切換成 Kernel mode
+* CPU 只是把目前這個 process 的一些使用者狀態先存起來
+* 然後進入 kernel mode 處理事情
+* 因此**不會切到別的 process**
+
+### Process Context Switch
+把 CPU 從正在執行的 Process A 換成 Process B，交接所有東西  
+* 把 A 的全部狀態存起來
+* 把 B 的狀態讀出來，套用到 CPU 裡
+
+---
+
+
+# System Call
+
+## What is System Call
+
+### 目標: 讓使用者空間（user space）的應用程式，可以與作業系統核心（kernel）互動
+### 怎麼達成: Kernel 提供一組「系統呼叫接口（system call interfaces）」這些接口可以讓你：
+
+* 開檔案 (open)
+* 寫檔案 (write)
+* 建立行程 (fork)
+* 分配記憶體 (mmap)
+
+<img width="1112" height="127" alt="image" src="https://github.com/user-attachments/assets/cb4fb248-adb8-4eaf-8cfe-a9f4402f3bfc" />  
+
+* 應用程式程式碼呼叫： `printf("Hello")`
+* C 標準函式庫： 其實是呼叫 `write()`
+* Kernel 內部實作： 實際執行 `sys_write`
+
+所以平常在用的 `printf()`，最終其實會透過底層的 `write()` 系統呼叫，讓 kernel 寫資料到螢幕  
+
+### `sys_call_table`
+
+這是 kernel 中的一張「系統呼叫表格」，裡面列出**每一個 system call 的對應編號**，例如:  
+* 編號 0 -> 指令 read -> Kernel 端函式 `__x64_sys_read()`
+* 編號 1 -> 指令 write -> Kernel 端函式 `__x64_sys_write()`
+
+---
+
+## System Call Handler
+
+### How to System Call
+1. 假設你是一個在 user mode 的應用程式（例如 Process A）你呼叫 `write()`
+2. CPU 會 從 user mode → 切到 kernel mode 去幫你跑 system call handler
+    * 不是 process context switch❗
+  
+3. kernel 查 `sys_call_table` 執行對應的功能
+
+### Details for System call handler (該如何通知 Kernel)
+現在假設在 User Mode (Process A)
+1. 透過 軟體中斷（software interrupt） 的方式
+2. 用指令：`INT $0x80`（這是中斷號碼 128）
+3. 把你想要叫的 system call number 塞到 `eax` 暫存器裡
+4. kernel 就會觸發對應的 system call handler，執行 INT $0x80 這條指令 → 軟體中斷觸發
+
+至此，已切換到 Kernel Mode
+1. 進入 System Call Handler
+2. 從 `sys_call_table[eax]` 查出對應的函式（例如 sys_write）並執行
+3. 執行完之後回到 user mode，Process A 繼續執行
+
+---
+
+## How to Implement a System Call (如何實作一個 System Call)
+
+以把它想像成「你寫一個新功能，希望 user-space 可以叫 kernel 幫你執行」  
+
+* 以下是在 Kernel 內新增 `sys_hello()`的範例:
+  
+1. 寫一個新的 C 檔
+
+```c
+// sys_hello.c
+asmlinkage long sys_hello(void) {
+    printk("Hello from kernel!\n");
+    return 0;
+}
+```
+
+2. 建一個 Makefile（讓它可以被編譯）
+
+3. 把這個新函式「註冊」進 `syscall table`
+要改 `syscall_64.tbl`: 像是加上這行 `436     common     hello    __x64_sys_hello`
+
+4. 加入標頭檔
+去 `include/linux/syscalls.h` 加一行
+
+5. 編譯、安裝、重啟kernel
+
+總結： 把一個 C 函式寫進 kernel，📝 註冊到 syscall table，🧩 加到 header，🧱 重編 kernel，就能用 system call 呼叫它  
+
+---
+
+# Inturrupts
+
+## Handling Hardware Events (處理硬體事件)
+
+### How CPUs work with slower hardware devices (CPU 如何和慢速硬體設備溝通?)
+* Polling: Kernel 定期主動檢查硬體狀態 
+* Inturrupts: 硬體自己發出訊號（signal）通知 kernel
+    * 硬體設備實體產生電子訊號(按下滑鼠)，這些「電子訊號」會傳到一個叫 Interrupt Controller 的元件，它會決定是誰要被中斷，然後告訴 CPU
+ 
+### What causes interrupts
+
+我們知道 inturrupt 會發出訊號，告訴 CPU 需要中斷。那甚麼原因會導致 inturrupt?
+
+1. Interrupt（Asynchronous, Hardware Interrupts）
+* 硬體設備物理產生電子訊號，這些訊號被引導至 interrupt controller （例如鍵盤、磁碟）的 input pins
+* 之後會觸發 CPU 執行對應的中斷處理程式
+
+2. Exception（Synchronous, Software Interrupts）
+* 由 CPU 自己產生，發生在執行某個指令的當下
+* 通常是錯誤、例外或特殊事件引起
+
+---
+
+## IRQ (Interrupt Request, 中斷請求)
+
+* 不同的裝置（像是鍵盤、滑鼠、硬碟）都可以對 CPU 發出中斷，但要讓 CPU 能區分是誰發的，就要給每個中斷一個獨一無二的編號（interrupt value）
+* Linux/ x86 架構中最多可以有 256 個中斷編號（0~255）。這個設計就像 system call 一樣：用編號來辨識要執行的功能
+   * 每個 IRQ（中斷號碼）都會對應到一個「特定的裝置」，在系統啟動時，kernel 就已經知道這些對應關係
+       * IRQ 0 -> timer interrupt
+       * IRQ 1 -> keyboard interrupt
+       * Dynamically Allocate IRQ # -> PCI devices
+
+---
+
+## How an Interrupt Work
+
+1. 硬體裝置送出 interrupt signal (例如你按下鍵盤，就會觸發IRQ1)
+2. CPU 停止目前正在執行的程式
+3. Interrupt controller 把中斷號碼 **INT#** 傳給 CPU (例如 IRQ1 被轉換成 INT 0x81)
+4. CPU 利用中斷號碼，去中斷向量表找對應的服務程式位置
+5. CPU 開始執行中斷服務程式（ISR: Interrupt Service Routine）
+
+<img width="374" height="396" alt="image" src="https://github.com/user-attachments/assets/760935af-f8bc-4578-aeba-8e590908b8bc" />  
+
+* 小補充：為什麼要 ×4？因為每個中斷向量項目佔 4 bytes
+---
+
+## Inturrupt Handler
+
+### Interrupt Service Routine (ISR) 是什麼？
+
+* 當某個硬體裝置產生中斷（例如鍵盤被按下），Kernel 會跳到一段程式去處理這個事件
+* 這段程式就叫做 中斷服務程式，簡稱 ISR
+    * 它通常是驅動程式（Device Driver）的一部分：例如鍵盤驅動、網路卡驅動裡就會包含對應的 ISR
+    * 這些程式碼是由 kernel 管理的，屬於 kernel space
+
+### ISR is non-blockable (Cannot Sleep)
+* ISR（中斷處理）不能 sleep
+* 因為「中斷」本質上就是一個極度緊急的事件，像是要處理硬體發出 interrupt
+* 如果你在 ISR 裡 sleep，就會卡住整個 CPU
+
+
+### 將 ISR 拆分為兩部分處理
+
+* Top Halves: Run immediately upon receipt of the interrupt and performs only the work that is time-critical
+    * Top Half 是在中斷發生當下執行的👉 必須非常快、不能阻塞
+    * 所以把重要的、急的事情留在 Top Half 做
+        * 一收到硬體中斷 → 立刻執行、做最基本的清理、資料轉移
+ 
+
+* Bottom Halves: Work that can be performed later is deferred until the bottom half
+    * 等 Top Half 做完。不是立即執行、而是 deferred（延後）
+    * 不影響即時性，但把事情做完
+        * 處理封包內容（例如解析 HTTP 請求）
+     
+* 舉例說明:
+    * Top Half = 火災現場搶救人命，最急要立刻做！
+    * Bottom Half = 事後調查失火原因、報案記錄、開罰單 → 不急，稍後做就好
+
 
 
