@@ -197,3 +197,95 @@
 
 ## Slab Layer
 
+* 為什麼 Linux Kernel 設計要引入 Slab Layer
+    * 簡單來說，Slab Layer 是一種高效管理小型 kernel object 記憶體配置的方法
+    * 可以顯著減少 memory allocation 的時間與碎裂
+ 
+---
+
+### Slab Layer 概念
+
+* Grouping kernel objects (i.e., data structure) into slab cache
+* Pre-allocating memory pages in slabs leading to faster memory allocation
+    * 意思是將 Kernel object 分組到 slab 快取中
+    * 在 slab 中，預先分配好 memort page ， 加快記憶體分配速度
+    * 當不需要 Kernel object 時，他會被返回到 free list 而非 deallocated
+ 
+* 範例: process descriptors (a free list of task_struct), file objects (inode)
+
+### slab layer acts as a 「Generic data structure-caching layer」
+* 經常使用的資料結構往往會被頻繁分配和釋放，導致記憶體碎片化。
+* 因此需要對其進行快取:
+    * 將常用結構快取起來，不需要每次都從頭分配！
+    * 使用 slab cache 預先準備好這些結構體的實例
+
+### Slab Layer vs Buddy System
+
+| 項目       | Slab Layer                           | Buddy System              |
+| -------- | ------------------------------------ | ------------------------- |
+| **最小單位** | 結構體大小（如 88B）                         | 一整個 page（通常 4KB）          |
+| **速度**   | 快（無需從 page 分配，每次直接從 slab cache）      | 慢（需掃描 page order + 合併或分裂） |
+| **碎裂控制** | 高（固定大小 chunk）                        | 低（會產生外部 fragmentation）    |
+| **典型用途** | kernel object（如 process, file, sema） | 大型連續記憶體需求（如 I/O buffer）   |
+
+
+---
+
+## How Slab Layer Works
+
+### 【Slab Layer 結構分層】Cache → Slab → Pages
+
+* Cache: 專屬於某一種資料結構的「快取空間」
+* Slab: 每個 slab 是由幾個 Page 組成的 pool，內部包含很多同類型資料結構的 object
+* Page: 一般的實體記憶體頁
+
+### 這些 slab 會根據使用情況被分為三類 list
+* `slabs_full`: Slab 中的 object 都被使用中
+* `slabs_partial`: Slab 中有部分 object 還未被使用，可繼續配置
+* `slabs_free`: Slab 中沒有任何 object 被使用，可以整塊回收或再利用
+
+<img width="543" height="259" alt="image" src="https://github.com/user-attachments/assets/8879d005-58f3-41cc-8080-270c988a4fd5" />
+
+### Slab Layer 的記憶體分配策略（allocation policy） 和 回收策略（free policy）
+
+* Run Allocation: There does not exist any partial or empty slabs in each cache
+* Run Free: Only when available memory grows low
+
+簡單來說:   
+* Allocation 代表「快取空間內沒有任何 "partial" 或是 "empty" 的 slab」，因此請求新的實體 page 來建立新的 slab
+* Free 代表「系統內的記憶體空間不足」，因此需要從快取空間內釋放沒在使用的 slab
+
+### 一句話總結
+當**快取沒空間**時 -> run allocation -> 向記憶體索取新的 page 來建立 slab；當**記憶體沒空間** -> run free -> 從快取空間釋放 slab  
+
+---
+
+## Linux kernel 中的記憶體分配函式
+
+
+
+<img width="570" height="399" alt="image" src="https://github.com/user-attachments/assets/155ba5bf-b22c-48fc-b83a-3b9f34232fc3" />
+
+### `kmalloc()`: 以 **byte-sized** chunck 取得 kernel memory
+* kmalloc() 本身會先去 Slab Layer 拿現成的物件（cache reuse）。
+* 若 slab 沒有可用物件 (圖中右側)，slab layer 才會呼叫 alloc_pages() 來配置新的 page 給 slab 使用
+
+### `vmalloc()`: allocates memory that is only **virtually contiguous**
+* 需要使用 page table，來維護 virtual addresses 和 physical address 之間的對應
+* 出於效能考慮，Kernel 內部的記憶體分配通常使用 `kmalloc()`
+    * 因為要查頁表，產生 address translation overhead
+    * 僅當系統需要大容量記憶體區域時才使用 `vmalloc()`
+
+## User space memory allocation 則是透過 `malloc()`
+
+---
+
+## High Memory
+
+* Kernel address space 保留了 128MB 的動態映射區域，稱為高階記憶體（例如 896MB 到 1GB）
+    * 意思是 high memory 這段的記憶體，並沒有永久對應的 kernel address space ，而是當要使用時才會動態映射
+ 
+<img width="810" height="801" alt="image" src="https://github.com/user-attachments/assets/cac953c1-1607-44f4-ad09-8c1a4dad203b" />
+
+---
+
