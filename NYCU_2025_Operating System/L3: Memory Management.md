@@ -289,3 +289,24 @@
 
 ---
 
+## Virtual Address Spaces
+
+### 每個 process 都有「unique」「flatten」的 address space
+* unique: 不同的 process 可以在同個 virtual address 上儲存不同的資料，因為他們各自有獨立的 address
+    * 但是不同的 thread 都屬於同個 process， 所以會共享 address space
+* flatten: 現代 Linux system 不使用 segmentation
+
+### Memory address is a particular value
+* 用來標示在 process 的 address space 中，某個特定的 byte
+* 在 32 位元系統中，每個 process 的虛擬位址空間是從 0 到 2^32 - 1
+    * 所以一個號碼對應到一個 byte，總共有2^32個位址個別對應到一個 byte
+
+### 並不是每個 space address 都是合法的
+* 只有 readable, writable, executable 等，才擁有該權限可使用 space address
+
+---
+
+## Memory descriptor `struct mm_struct`
+
+*  Memory descriptor: 是一個 kernel data structure，該資料結構包含 process address space 的所有資訊
+*  與某個 task 相關的 Memory descriptor，會被儲存在該 task 的 process descriptor 中的 mm 欄位裡
