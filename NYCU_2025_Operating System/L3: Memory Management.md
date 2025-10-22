@@ -309,4 +309,33 @@
 ## Memory descriptor `struct mm_struct`
 
 *  Memory descriptor: 是一個 kernel data structure，該資料結構包含 process address space 的所有資訊
-*  與某個 task 相關的 Memory descriptor，會被儲存在該 task 的 process descriptor 中的 mm 欄位裡
+*  在 `task_struct` 裡(ch2)，有一個欄位叫 mm，它指向這個 process 的 memory discriptor
+
+---
+
+## Virtual Memory Areas (VMA)
+
+* virtual memory area (or VMA) structure `vm_area_struct`: a single memory area over **a contiguous interval in a given 「virtual address space」**
+<img width="346" height="77" alt="image" src="https://github.com/user-attachments/assets/7133349f-63f2-4757-adb6-cbb84e3e96b4" />
+
+* Any two VMAs cannot overlap with each other
+    * （可以呼叫 find_VMA() 來取得附近的 VMA。檢查 vm_end 欄位。）
+ 
+* 使用 `do_mmap()` 新增/擴充 VMA
+
+---
+## Page Table
+
+* For systems with **virtual memory management (or MMU)**, all virtual addresses shall be converted to physical addresses before **being accessed**
+* Page Tables take the responsibility for address translations
+    * Each page table comprises a bunch of **8B page table entries (PTE)** on 64-bit systems
+    * Larger Memory -> More PTEs
+    * Linux uses **multi-level page tables** (4-level for 64-bit systems)
+    * TLB: a hardware cache, to keep **the mapping between the VA/PA** in the CPU
+ 
+* page fault : when a process accesses a memory page without proper preparations
+    * Minor Page Fault: Page is already in the memory but is not marked in the MMU
+    * Major Page Fault: Page is not in the memory
+
+
+## How the CPU Walks Page table
