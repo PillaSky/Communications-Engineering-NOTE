@@ -11,7 +11,7 @@
 
 
 ### 觀點二: Beamforming 可以分為兩類
-* Analog Beamforming: 相同的訊號被送到每個天線，然後使用 **analog pahse-shifters**來控制陣列發射的訊號
+* Analog Beamforming: 相同的訊號被送到每個天線，然後使用 **analog phase-shifters**來控制陣列發射的訊號
 * Digital Beamforming: 在數位層面為每個天線獨立設計不同的訊號。這種方式提供了更大的靈活性，因為可以獨立控制每個天線的功率和相位，甚至針對頻譜的不同部分（例如子載波）進行調整。預編碼在頻寬較大時也大有裨益，因為在固定相位下，訊號在頻段的不同部分會獲得不同的方向性。
 
 根據這個觀點:  
