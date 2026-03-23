@@ -17,8 +17,9 @@
 根據這個觀點:  
 * Precoding = digital beamforming: 由於數位波束成形可以實現 Spatial Multiplexing ，即同時「向多個使用者」傳輸「多個獨立的資料流」，因此預編碼特別適用於此類應用。
 <img width="482" height="251" alt="image" src="https://github.com/user-attachments/assets/ca635864-eab7-4881-9398-8c9a42970785" />
+
 1. 左圖可理解成: 所有天線一起發送「同一個訊號」，差別在於它們被個別乘上某個 weight / phase
-2. 右圖可理解成: 所有天仙個別發送「不同的訊號」
+2. 右圖可理解成: 所有天線個別發送「不同的訊號」
 
 
 
