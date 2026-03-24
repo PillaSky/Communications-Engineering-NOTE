@@ -124,6 +124,12 @@ PC2: 26 dBm
 
 PC3: 23 dBm 
 
+# Asymmetric Channel Bandwidths 非對稱頻譜
+
+TDD好做，FDD很難，還在觀察效能，一般是次要功能
+
+# Irregular Channel Bandwidth 非常規頻段
+
 
 
 
